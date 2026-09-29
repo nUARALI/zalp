@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import BoardView from './components/BoardView';
 import {
   FLEET_SPEC,
-  chooseAiShot,
+  chooseShot,
   createEmptyBoard,
   createInitialGameState,
   fire,
   getShipCells,
+  knowledgeFromShots,
   placeFleetRandomly,
   placeShip,
   removeShip,
@@ -91,7 +92,8 @@ export default function App() {
     }
     const t = window.setTimeout(() => {
       try {
-        const target = chooseAiShot(game.shots, difficulty);
+        // Честно: только история выстрелов компьютера, без досок игрока
+        const target = chooseShot(knowledgeFromShots(game.shots), difficulty);
         setGame(fire(game, target));
       } catch {
         // Нет доступных клеток или повтор — игнорируем, партия уже почти окончена
