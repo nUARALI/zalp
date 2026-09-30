@@ -8,8 +8,9 @@ import type { Coord } from '../types';
  * Подсчитать, сколько размещений оставшихся кораблей проходит
  * через каждую клетку, с учётом промахов (пересечение запрещено)
  * и запрета касания (включая диагонали) с потопленными.
+ * Экспортирована для переиспользования тренером (без дублирования).
  */
-function densityMap(knowledge: AIKnowledge): number[][] {
+export function densityScores(knowledge: AIKnowledge): number[][] {
   const scores: number[][] = Array.from({ length: BOARD_SIZE }, () =>
     Array.from({ length: BOARD_SIZE }, () => 0),
   );
@@ -63,7 +64,7 @@ function densityMap(knowledge: AIKnowledge): number[][] {
 
 /** Режим охоты для сложной: клетка с максимальной плотностью. */
 export function huntDensity(knowledge: AIKnowledge, rng: () => number): Coord {
-  const scores = densityMap(knowledge);
+  const scores = densityScores(knowledge);
   let best = -1;
   let pool: Coord[] = [];
   const tried = triedSet(knowledge);

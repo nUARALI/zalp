@@ -329,7 +329,7 @@ export default function App() {
         {screen === 'result' && game && (
           <ResultScreen game={game} onRematch={handleRematch} onNewGame={handleNewGame} />
         )}
-        {screen === 'profile' && <ProfileScreen user={user} onBack={handleProfileBack} />}
+        {screen === 'profile' && <ProfileScreen user={user} onBack={handleProfileBack} guestInput={game} />}
         {toast && (
           <div
             role="status"

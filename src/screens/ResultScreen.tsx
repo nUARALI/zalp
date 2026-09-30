@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import BoardView from '../components/BoardView';
+import CoachPanel from '../components/CoachPanel';
 import type { GameState } from '../game/types';
 import { formatPercent, getStats } from '../lib';
 
@@ -11,6 +13,7 @@ interface Props {
 export default function ResultScreen({ game, onRematch, onNewGame }: Props) {
   const stats = getStats(game);
   const win = game.winner === 'player';
+  const [showCoach, setShowCoach] = useState(false);
 
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 text-center">
@@ -65,6 +68,20 @@ export default function ResultScreen({ game, onRematch, onNewGame }: Props) {
           Новая игра
         </button>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setShowCoach((v) => !v)}
+        aria-expanded={showCoach}
+        className="mt-2 w-full rounded-2xl border border-amber-700 bg-amber-950/40 px-4 py-3 text-base font-bold text-amber-200"
+      >
+        {showCoach ? 'Скрыть разбор ▲' : 'Разбор партии 🎓'}
+      </button>
+      {showCoach && (
+        <div className="mt-3 rounded-2xl border border-[#14425e] bg-[#04121f]/60 p-3">
+          <CoachPanel input={game} />
+        </div>
+      )}
     </div>
   );
 }
