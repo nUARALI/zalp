@@ -1,4 +1,4 @@
-import type { Coord, GameState } from './game/types';
+import type { Coord, GameState } from '../game/types';
 
 const LETTERS = 'АБВГДЕЖЗИК';
 

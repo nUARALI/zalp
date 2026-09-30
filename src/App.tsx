@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import AppHeader from './components/AppHeader';
 import BoardView from './components/BoardView';
 import {
   FLEET_SPEC,
@@ -16,13 +17,17 @@ import {
   type Difficulty,
   type GameState,
 } from './game';
+import { buildGameRow, newMatchId, saveFinishedGame } from './lib/games';
+import { getSupabase } from './lib/supabase';
+import { useAuth } from './lib/useAuth';
 import { clearGame, loadGame, saveGame } from './storage';
 import BattleScreen from './screens/BattleScreen';
 import MenuScreen from './screens/MenuScreen';
 import PlacementScreen from './screens/PlacementScreen';
+import ProfileScreen from './screens/ProfileScreen';
 import ResultScreen from './screens/ResultScreen';
 
-type Screen = 'menu' | 'placement' | 'battle' | 'result';
+type Screen = 'menu' | 'placement' | 'battle' | 'result' | 'profile';
 
 function screenForPhase(phase: GameState['phase']): Screen {
   if (phase === 'placement') return 'placement';
@@ -58,6 +63,13 @@ export default function App() {
   const [horizontal, setHorizontal] = useState(true);
   const [screen, setScreen] = useState<Screen>('menu');
   const [hasSave, setHasSave] = useState(false);
+  const [matchId, setMatchId] = useState<string>(() => newMatchId());
+  const [startedAtMs, setStartedAtMs] = useState<number>(() => Date.now());
+  const [toast, setToast] = useState<{ text: string; kind: 'ok' | 'err' } | null>(null);
+  const savedMatches = useRef<Set<string>>(new Set());
+  const screenBeforeProfile = useRef<Screen>('menu');
+
+  const { user, loading: authLoading } = useAuth();
 
   // Восстановление после перезагрузки: партия продолжается с того же места
   useEffect(() => {
@@ -65,6 +77,8 @@ export default function App() {
     if (saved) {
       setGame(saved.state);
       setDifficulty(saved.difficulty);
+      setMatchId(saved.matchId);
+      setStartedAtMs(saved.startedAtMs);
       setScreen(screenForPhase(saved.state.phase));
       setHasSave(true);
     }
@@ -73,10 +87,10 @@ export default function App() {
   // Сохранение после каждого изменения партии
   useEffect(() => {
     if (game) {
-      saveGame(game, difficulty);
+      saveGame(game, difficulty, matchId, startedAtMs);
       setHasSave(true);
     }
-  }, [game, difficulty]);
+  }, [game, difficulty, matchId, startedAtMs]);
 
   // Переход на экран результата при завершении
   useEffect(() => {
@@ -84,6 +98,31 @@ export default function App() {
       setScreen('result');
     }
   }, [game?.phase]);
+
+  // Автоскрытие уведомления
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
+  // Автосейв завершённой партии в Supabase (один раз, идемпотентно по id).
+  // Гостем — пропускаем. Ошибка сети игру не ломает, только уведомление.
+  useEffect(() => {
+    if (!game || game.phase !== 'finished' || !user) return;
+    if (savedMatches.current.has(matchId)) return;
+    const client = getSupabase();
+    if (!client) return;
+    savedMatches.current.add(matchId);
+    const row = buildGameRow(matchId, game, difficulty, startedAtMs);
+    saveFinishedGame(client, row).then((res) => {
+      if (res.ok) {
+        setToast({ text: 'Партия сохранена в профиль.', kind: 'ok' });
+      } else {
+        setToast({ text: res.errorRu ?? 'Не удалось сохранить партию.', kind: 'err' });
+      }
+    });
+  }, [game, user, matchId, difficulty, startedAtMs]);
 
   // Ход компьютера с задержкой ~700 мс. ИИ видит только историю выстрелов.
   useEffect(() => {
@@ -102,17 +141,24 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [game, difficulty]);
 
-  const handlePlay = useCallback(() => {
-    const g = newPlacementGame();
+  const startFresh = useCallback((g: GameState, next: Screen) => {
+    setMatchId(newMatchId());
+    setStartedAtMs(Date.now());
     setGame(g);
-    setScreen('placement');
+    setScreen(next);
   }, []);
+
+  const handlePlay = useCallback(() => {
+    startFresh(newPlacementGame(), 'placement');
+  }, [startFresh]);
 
   const handleContinue = useCallback(() => {
     const saved = loadGame();
     if (saved) {
       setGame(saved.state);
       setDifficulty(saved.difficulty);
+      setMatchId(saved.matchId);
+      setStartedAtMs(saved.startedAtMs);
       setScreen(screenForPhase(saved.state.phase));
     } else if (game) {
       setScreen(screenForPhase(game.phase));
@@ -206,15 +252,15 @@ export default function App() {
   }, [game]);
 
   const handleRematch = useCallback(() => {
-    const g = newQuickBattleGame();
-    setGame(g);
-    setScreen('battle');
-  }, []);
+    startFresh(newQuickBattleGame(), 'battle');
+  }, [startFresh]);
 
   const handleNewGame = useCallback(() => {
     clearGame();
     setGame(null);
     setHasSave(false);
+    setMatchId(newMatchId());
+    setStartedAtMs(Date.now());
     setScreen('menu');
   }, []);
 
@@ -222,8 +268,38 @@ export default function App() {
     setScreen('menu');
   }, []);
 
+  const handleProfile = useCallback(() => {
+    screenBeforeProfile.current = screen === 'profile' ? 'menu' : screen;
+    setScreen('profile');
+  }, [screen]);
+
+  const handleProfileBack = useCallback(() => {
+    const prev = screenBeforeProfile.current;
+    if (prev === 'profile') {
+      setScreen('menu');
+      return;
+    }
+    if ((prev === 'battle' || prev === 'placement' || prev === 'result') && !game) {
+      setScreen('menu');
+      return;
+    }
+    setScreen(prev);
+  }, [game]);
+
+  const handleHome = useCallback(() => {
+    if (game) setScreen(screenForPhase(game.phase));
+    else setScreen('menu');
+  }, [game]);
+
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#020d1a] text-slate-200">
+      <AppHeader
+        user={user}
+        authLoading={authLoading}
+        onHome={handleHome}
+        onProfile={handleProfile}
+        screen={screen}
+      />
       <div className="mx-auto w-full max-w-3xl">
         {screen === 'menu' && (
           <MenuScreen
@@ -252,6 +328,17 @@ export default function App() {
         )}
         {screen === 'result' && game && (
           <ResultScreen game={game} onRematch={handleRematch} onNewGame={handleNewGame} />
+        )}
+        {screen === 'profile' && <ProfileScreen user={user} onBack={handleProfileBack} />}
+        {toast && (
+          <div
+            role="status"
+            className={`fixed bottom-4 left-1/2 z-50 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-xl px-4 py-2 text-sm shadow-lg ${
+              toast.kind === 'ok' ? 'bg-emerald-600 text-white' : 'bg-rose-700 text-white'
+            }`}
+          >
+            {toast.text}
+          </div>
         )}
         {/* Страховка: превью доски никогда не должно вызывать скролл на 375px */}
         {import.meta.env.DEV && (
